@@ -1,0 +1,120 @@
+{
+ "train": {
+  "start": "20260816",
+  "end": "20261014"
+ },
+ "test": {
+  "start": "20261015",
+  "end": "20261113"
+ },
+ "top5Train": [
+  {
+   "buyOffsetYen": 2,
+   "sellOffsetYen": -3,
+   "minSpreadYen": 0,
+   "trainNetYen": 1248974
+  },
+  {
+   "buyOffsetYen": 1,
+   "sellOffsetYen": -3,
+   "minSpreadYen": 0,
+   "trainNetYen": 1203644
+  },
+  {
+   "buyOffsetYen": 2,
+   "sellOffsetYen": -3,
+   "minSpreadYen": 2,
+   "trainNetYen": 1191021
+  },
+  {
+   "buyOffsetYen": 1,
+   "sellOffsetYen": -3,
+   "minSpreadYen": 2,
+   "trainNetYen": 1154485
+  },
+  {
+   "buyOffsetYen": 1,
+   "sellOffsetYen": -3,
+   "minSpreadYen": 4,
+   "trainNetYen": 1069959
+  }
+ ],
+ "fixed": {
+  "params": {
+   "thresholdMode": "fixed",
+   "buyOffsetYen": 0,
+   "sellOffsetYen": 0,
+   "minSpreadYen": 0
+  },
+  "train": {
+   "netYen": 246715.2704988094,
+   "baselineYen": 4102123.02284183,
+   "fills": 16,
+   "days": 60
+  },
+  "testAvg": {
+   "netYen": 188659.7704988094,
+   "baselineYen": 2596831.9937126166,
+   "fills": 10,
+   "days": 30
+  },
+  "testTouch": {
+   "netYen": 3323643.1998127606,
+   "baselineYen": 2596831.9937126166,
+   "fills": 228,
+   "days": 30
+  }
+ },
+ "default": {
+  "params": {
+   "thresholdMode": "spotRelative",
+   "buyOffsetYen": -2,
+   "sellOffsetYen": 2,
+   "minSpreadYen": 2
+  },
+  "train": {
+   "netYen": 496194.99514929496,
+   "baselineYen": 4102123.02284183,
+   "fills": 115,
+   "days": 60
+  },
+  "testAvg": {
+   "netYen": 155652.11920471353,
+   "baselineYen": 2596831.9937126166,
+   "fills": 39,
+   "days": 30
+  },
+  "testTouch": {
+   "netYen": 1678122.5883497153,
+   "baselineYen": 2596831.9937126166,
+   "fills": 261,
+   "days": 30
+  }
+ },
+ "selected": {
+  "params": {
+   "thresholdMode": "spotRelative",
+   "buyOffsetYen": 2,
+   "sellOffsetYen": -3,
+   "minSpreadYen": 0
+  },
+  "train": {
+   "netYen": 1248973.954681757,
+   "baselineYen": 4102123.02284183,
+   "fills": 382,
+   "days": 60
+  },
+  "testAvg": {
+   "netYen": 884309.468059307,
+   "baselineYen": 2596831.9937126166,
+   "fills": 165,
+   "days": 30
+  },
+  "testTouch": {
+   "netYen": 942205.5808492091,
+   "baselineYen": 2596831.9937126166,
+   "fills": 169,
+   "days": 30
+  }
+ }
+}

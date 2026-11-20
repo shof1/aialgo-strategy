@@ -27,16 +27,43 @@ export interface StrategyParams {
   eprxBlocks: number; // EPRX 入札コマ数
   maxBuyBlocks: number; // 時間前 買い 最大コマ数
   maxSellBlocks: number; // 時間前 売り 最大コマ数（全段合計）
-  buyBelowYen: number; // 買い条件: 価格 < この値
-  sellTiersYen: number[]; // 売り段: 価格 > 各値（昇順）
+  /**
+   * 時間前の指値の決め方
+   * - "fixed"        : 固定しきい値（買 < buyBelowYen、売 > sellTiersYen）… v0.2 の方式
+   * - "spotRelative" : そのコマのスポット約定価格（D-1 10:30 に確定済み）± オフセット
+   */
+  thresholdMode: "fixed" | "spotRelative";
+  buyBelowYen: number; // fixed: 買い条件 価格 < この値
+  sellTiersYen: number[]; // fixed: 売り段 価格 > 各値（昇順）
+  buyOffsetYen: number; // spotRelative: 買い指値 = スポット + この値（負なら割安でしか買わない）
+  sellOffsetYen: number; // spotRelative: 売り指値 = スポット + この値
+  minSpreadYen: number; // spotRelative: 売り指値 × η − 買い指値 がこの値未満の組は計画しない
 }
 
-export const DEFAULT_PARAMS: StrategyParams = {
+/** v0.2 の固定しきい値（比較用） */
+export const FIXED_PARAMS: StrategyParams = {
   eprxBlocks: 7,
   maxBuyBlocks: 7,
   maxSellBlocks: 7,
+  thresholdMode: "fixed",
   buyBelowYen: 1,
   sellTiersYen: [30, 40],
+  buyOffsetYen: 0,
+  sellOffsetYen: 0,
+  minSpreadYen: 0,
+};
+
+/**
+ * 既定: スポット連動。オフセットは scripts/sweep.ts（直前 60 日で学習 → 次の 30 日で検証）で選んだ値。
+ * 3 回の検証のうち 2 回で学習期間の最良が「買 ±0 / 売 −1 円」だったのでこれを採用。
+ * 本番では毎月 sweep を回し直して更新する想定。
+ */
+export const DEFAULT_PARAMS: StrategyParams = {
+  ...FIXED_PARAMS,
+  thresholdMode: "spotRelative",
+  buyOffsetYen: 0,
+  sellOffsetYen: -1,
+  minSpreadYen: 0,
 };
 
 export type Side = "buy" | "sell";

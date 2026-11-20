@@ -4,7 +4,12 @@ import type { RunResult } from "../backtest/engine";
 import type { BacktestSummary } from "../backtest/summary";
 
 export interface BacktestFile {
-  summary: BacktestSummary & { fillModel: string; optimistic: BacktestSummary };
+  summary: BacktestSummary & {
+    fillModel: string;
+    optimistic: BacktestSummary;
+    /** v0.2 固定しきい値の比較値（古い結果ファイルには無い） */
+    fixed?: { netYen: number; optimisticNetYen: number; buyFills: number; sellFills: number };
+  };
   runs: RunResult[];
 }
 
