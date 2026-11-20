@@ -3,7 +3,8 @@ import { matchOrder, runDay } from "../src/lib/backtest/engine";
 import { canExecute, maxExecutable, simulateSoc, socBounds } from "../src/lib/core/soc";
 import { decideCycle, planEprxBids, planHa, sellTierFor } from "../src/lib/core/strategy";
 import { blockLabel, cycleTarget, gateClose, intradayCycles, isoJst } from "../src/lib/core/time";
-import { DEFAULT_ASSET as A, DEFAULT_PARAMS as P, type IntradayBar } from "../src/lib/core/types";
+// 既存テストは v0.2 の固定しきい値の挙動を検証する（スポット連動は tests/spot-relative.test.ts）
+import { DEFAULT_ASSET as A, FIXED_PARAMS as P, type IntradayBar } from "../src/lib/core/types";
 import { parseIntradayCsv, parseSpotCsv } from "../src/lib/data/jepx";
 
 const jst = (s: string) => new Date(s + "+09:00");

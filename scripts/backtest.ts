@@ -6,10 +6,11 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { runDay, type FillModel, type RunResult } from "../src/lib/backtest/engine";
+import { type FillModel, type RunResult } from "../src/lib/backtest/engine";
+import { simulatePeriod } from "../src/lib/backtest/period";
 import { addDays, toDateCode } from "../src/lib/core/time";
-import { DEFAULT_ASSET, DEFAULT_PARAMS } from "../src/lib/core/types";
-import { isCompleteSpot, parseIntradayCsv, parseSpotCsv } from "../src/lib/data/jepx";
+import { DEFAULT_ASSET, DEFAULT_PARAMS, FIXED_PARAMS } from "../src/lib/core/types";
+import { parseIntradayCsv, parseSpotCsv } from "../src/lib/data/jepx";
 import { summarize } from "../src/lib/backtest/summary";
 
 async function load(kind: "spot" | "intraday", years: number[]) {
@@ -33,26 +34,21 @@ async function main() {
 
   const asset = DEFAULT_ASSET;
   const params = DEFAULT_PARAMS;
-  const simulate = (fillModel: FillModel) => {
-    let soc = asset.capacityMwh * 0.5; // 初日の開始 SOC は 50% と仮定し、以降は前日終了 SOC を引継ぐ
-    const runs: RunResult[] = [];
-    for (let d = start; d <= end; d = addDays(d, 1)) {
-      const s = spot.get(d);
-      const bars = intraday.get(d) ?? [];
-      if (!isCompleteSpot(s)) {
-        if (fillModel === "avg") console.warn(`skip ${d}: スポットデータ不足`);
-        continue;
-      }
-      if (bars.length < 48 && fillModel === "avg") console.warn(`${d}: 時間前データ ${bars.length}/48 コマ`);
-      const r = runDay({ dateCode: d, spotYen: s, intraday: bars }, soc, asset, params, fillModel);
-      runs.push(r);
-      soc = r.endSocMwh;
-    }
-    return runs;
-  };
+  const data = { spot, intraday };
+  const simulate = (fillModel: FillModel): RunResult[] =>
+    simulatePeriod(data, start, end, asset, params, fillModel, fillModel === "avg" ? console.warn : () => {});
   const runs = simulate("avg");
   const optimistic = summarize(simulate("touch"), { start, end, asset, params });
-  const summary = { ...summarize(runs, { start, end, asset, params }), fillModel: "avg", optimistic };
+  // 比較: v0.2 の固定しきい値（買 < 1 円 / 売 > 30・40 円）
+  const fixedRuns = simulatePeriod(data, start, end, asset, FIXED_PARAMS, "avg");
+  const fixed = summarize(fixedRuns, { start, end, asset, params: FIXED_PARAMS });
+  const fixedOptimistic = summarize(simulatePeriod(data, start, end, asset, FIXED_PARAMS, "touch"), { start, end, asset, params: FIXED_PARAMS });
+  const summary = {
+    ...summarize(runs, { start, end, asset, params }),
+    fillModel: "avg",
+    optimistic,
+    fixed: { netYen: fixed.netYen, optimisticNetYen: fixedOptimistic.netYen, buyFills: fixed.buyFills, sellFills: fixed.sellFills },
+  };
   await mkdir(path.join(process.cwd(), "data/backtest"), { recursive: true });
   const out = path.join(process.cwd(), "data/backtest/latest.json");
   await writeFile(out, JSON.stringify({ summary, runs }, null, 1));

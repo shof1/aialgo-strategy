@@ -50,6 +50,8 @@ export interface HaPlan {
   buyBlocks: Block[];
   sellBlocks: Block[];
   sellTier: Record<Block, number>;
+  /** コマ別の指値（円/kWh）。買い・売りどちらのコマも入る */
+  limitYen: Record<Block, number>;
   /** 全計画注文が約定した場合の SOC 推移（index b = B b 終了時） */
   socPlan: number[];
   plannedOrders: Order[];
@@ -79,6 +81,7 @@ export function planHa(
   asset: AssetSpec,
   params: StrategyParams,
 ): HaPlan {
+  if (params.thresholdMode === "spotRelative") return planHaSpotRelative(spotYen, eprxAwarded, startSocMwh, asset, params);
   const excluded = new Set(eprxAwarded);
   const ranked = spotYen.map((p, i) => ({ block: i + 1, p })).filter((x) => !excluded.has(x.block));
   const buyBlocks = [...ranked].sort((a, b) => a.p - b.p).slice(0, params.maxBuyBlocks).map((x) => x.block);
@@ -90,6 +93,9 @@ export function planHa(
     .map((x) => x.block);
   const sellTier: Record<Block, number> = {};
   for (const b of sellBlocks) sellTier[b] = sellTierFor(spotYen[b - 1], params.sellTiersYen);
+  const limitYen: Record<Block, number> = {};
+  for (const b of buyBlocks) limitYen[b] = buyLimit(params.buyBelowYen);
+  for (const b of sellBlocks) limitYen[b] = sellLimit(sellTier[b]);
 
   const sellSet = new Set(sellBlocks);
   const plannedOrders: Order[] = [];
@@ -115,8 +121,122 @@ export function planHa(
     buyBlocks: [...buyBlocks].sort((a, b) => a - b),
     sellBlocks: [...sellBlocks].sort((a, b) => a - b),
     sellTier,
+    limitYen,
     socPlan,
     plannedOrders,
+  };
+}
+
+const round2 = (x: number) => Math.round(x * 100) / 100;
+
+/** 計画（買い/売りコマの集合）を時刻順に流し、SOC 制約内で出せる注文と SOC 推移を返す */
+function layoutOrders(
+  buys: Set<Block>,
+  sells: Set<Block>,
+  limitYen: Record<Block, number>,
+  startSocMwh: number,
+  asset: AssetSpec,
+): { orders: Order[]; socPlan: number[] } {
+  const orders: Order[] = [];
+  const socPlan = [startSocMwh];
+  let soc = startSocMwh;
+  for (let b = 1; b <= 48; b++) {
+    const side = buys.has(b) ? "buy" : sells.has(b) ? "sell" : null;
+    if (side) {
+      const mwh = maxExecutable(asset, soc, side);
+      if (mwh > 0.001) {
+        orders.push({ block: b, side, limitYen: limitYen[b], mwh });
+        soc += socDelta(asset, side, mwh);
+      }
+    }
+    socPlan.push(soc);
+  }
+  return { orders, socPlan };
+}
+
+/**
+ * スポット連動の時間前計画。
+ * D-1 10:30 に確定しているスポット約定価格を「そのコマの時間前の基準価格」とみなし、
+ *   買い指値 = スポット + buyOffsetYen、売り指値 = スポット + sellOffsetYen
+ * とする。（充電コマ c, 放電コマ d, c < d）の組を
+ *   期待利ざや = 売り指値[d] × η − 買い指値[c]
+ * の大きい順に選び、minSpreadYen 未満の組は捨てる。組を足すたびに時刻順の SOC を検算し、
+ * どちらかの注文が 1 コマの半分未満しか出せなくなる組は採用しない
+ * （安値と高値を別々に並べると、充電より先に放電が来て売れない計画になるため）。
+ */
+export function planHaSpotRelative(
+  spotYen: number[],
+  eprxAwarded: Block[],
+  startSocMwh: number,
+  asset: AssetSpec,
+  params: StrategyParams,
+): HaPlan {
+  const excluded = new Set(eprxAwarded);
+  const eta = asset.roundTripEfficiency;
+  const half = blockMwh(asset) * 0.5;
+  const buyL = (b: Block) => round2(spotYen[b - 1] + params.buyOffsetYen);
+  const sellL = (b: Block) => round2(spotYen[b - 1] + params.sellOffsetYen);
+
+  const pairs: { c: Block; d: Block; spread: number }[] = [];
+  for (let c = 1; c <= 48; c++) {
+    if (excluded.has(c)) continue;
+    for (let d = c + 1; d <= 48; d++) {
+      if (excluded.has(d)) continue;
+      const spread = sellL(d) * eta - buyL(c);
+      if (spread >= params.minSpreadYen) pairs.push({ c, d, spread });
+    }
+  }
+  pairs.sort((a, b) => b.spread - a.spread || a.c - b.c || a.d - b.d);
+
+  const buys = new Set<Block>();
+  const sells = new Set<Block>();
+  const limitYen: Record<Block, number> = {};
+  for (const p of pairs) {
+    if (buys.size >= params.maxBuyBlocks || sells.size >= params.maxSellBlocks) break;
+    if (buys.has(p.c) || sells.has(p.c) || buys.has(p.d) || sells.has(p.d)) continue;
+    buys.add(p.c);
+    sells.add(p.d);
+    limitYen[p.c] = buyL(p.c);
+    limitYen[p.d] = sellL(p.d);
+    const { orders } = layoutOrders(buys, sells, limitYen, startSocMwh, asset);
+    const qty = new Map(orders.map((o) => [o.block, o.mwh]));
+    const ok = [...buys, ...sells].every((b) => (qty.get(b) ?? 0) >= half);
+    if (!ok) {
+      buys.delete(p.c);
+      sells.delete(p.d);
+      delete limitYen[p.c];
+      delete limitYen[p.d];
+    }
+  }
+
+  // 開始 SOC に余りがあれば、組にならない高値コマでも売る（前日からの持ち越し分の放電）
+  const extra = [...Array(48).keys()]
+    .map((i) => i + 1)
+    .filter((b) => !excluded.has(b) && !buys.has(b) && !sells.has(b))
+    .sort((a, b) => spotYen[b - 1] - spotYen[a - 1]);
+  for (const b of extra) {
+    if (sells.size >= params.maxSellBlocks) break;
+    // 持ち越し分の売りは、その日の最安コマを買うより得な場合だけ
+    const cheapest = Math.min(...spotYen.filter((_, i) => !excluded.has(i + 1)));
+    if (sellL(b) * eta - (cheapest + params.buyOffsetYen) < params.minSpreadYen) break;
+    sells.add(b);
+    limitYen[b] = sellL(b);
+    const { orders } = layoutOrders(buys, sells, limitYen, startSocMwh, asset);
+    const qty = new Map(orders.map((o) => [o.block, o.mwh]));
+    if (![...buys, ...sells].every((x) => (qty.get(x) ?? 0) >= half)) {
+      sells.delete(b);
+      delete limitYen[b];
+    }
+  }
+
+  const { orders, socPlan } = layoutOrders(buys, sells, limitYen, startSocMwh, asset);
+  return {
+    buyBlocks: [...buys].sort((a, b) => a - b),
+    sellBlocks: [...sells].sort((a, b) => a - b),
+    sellTier: {},
+    limitYen,
+    socPlan,
+    plannedOrders: orders,
   };
 }
 
@@ -141,13 +261,16 @@ export function decideCycle(
 ): Order | null {
   if (plan.buyBlocks.includes(block) && state.buysFilled < params.maxBuyBlocks) {
     const mwh = Math.min(blockMwh(asset), maxExecutable(asset, state.socMwh, "buy"));
-    if (mwh > 0.001) return { block, side: "buy", limitYen: buyLimit(params.buyBelowYen), mwh };
+    if (mwh > 0.001) return { block, side: "buy", limitYen: plan.limitYen[block] ?? buyLimit(params.buyBelowYen), mwh };
     return null;
   }
   if (plan.sellBlocks.includes(block) && state.sellsFilled < params.maxSellBlocks) {
     const mwh = Math.min(blockMwh(asset), maxExecutable(asset, state.socMwh, "sell"));
     const tier = plan.sellTier[block];
-    if (mwh > 0.001) return { block, side: "sell", limitYen: sellLimit(tier), mwh, tier };
+    if (mwh > 0.001) {
+      if (params.thresholdMode === "spotRelative") return { block, side: "sell", limitYen: plan.limitYen[block], mwh };
+      return { block, side: "sell", limitYen: sellLimit(tier), mwh, tier };
+    }
     return null;
   }
   return null;

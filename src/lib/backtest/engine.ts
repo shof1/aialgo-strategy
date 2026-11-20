@@ -111,8 +111,10 @@ export function runDay(
   log("S7_SOC_PLAN", `SOC 計画 B01–B48 作成（計画終了 SOC ${plan.socPlan[48].toFixed(2)} MWh）`, { socPlan: plan.socPlan });
   log(
     "S8_HA_INITIAL",
-    `時間前 初期入札: 買い候補 ${plan.buyBlocks.length} コマ（< ${params.buyBelowYen} 円）、売り候補 ${plan.sellBlocks.length} コマ（> ${params.sellTiersYen.join(" / > ")} 円）`,
-    { buyBlocks: plan.buyBlocks, sellBlocks: plan.sellBlocks, sellTier: plan.sellTier },
+    params.thresholdMode === "spotRelative"
+      ? `時間前 初期入札（スポット連動）: 買い候補 ${plan.buyBlocks.length} コマ（スポット ${params.buyOffsetYen >= 0 ? "+" : ""}${params.buyOffsetYen} 円）、売り候補 ${plan.sellBlocks.length} コマ（スポット ${params.sellOffsetYen >= 0 ? "+" : ""}${params.sellOffsetYen} 円）`
+      : `時間前 初期入札: 買い候補 ${plan.buyBlocks.length} コマ（< ${params.buyBelowYen} 円）、売り候補 ${plan.sellBlocks.length} コマ（> ${params.sellTiersYen.join(" / > ")} 円）`,
+    { buyBlocks: plan.buyBlocks, sellBlocks: plan.sellBlocks, sellTier: plan.sellTier, limitYen: plan.limitYen },
   );
 
   // S9: 30 分毎のサイクル（D-1 22:40 → D 22:10）

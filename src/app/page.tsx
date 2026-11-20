@@ -18,13 +18,19 @@ export default async function Home() {
   return (
     <>
       <p className="muted">
-        バックテスト {fmtDate(s.start)} 〜 {fmtDate(s.end)}（{s.days} 日）· 買 &lt; {s.params.buyBelowYen} 円 / 売 &gt;{" "}
-        {s.params.sellTiersYen.join(" / > ")} 円 · 各最大 {s.params.maxSellBlocks} コマ
+        バックテスト {fmtDate(s.start)} 〜 {fmtDate(s.end)}（{s.days} 日）·{" "}
+        {s.params.thresholdMode === "spotRelative"
+          ? `スポット連動: 買 = スポット ${s.params.buyOffsetYen >= 0 ? "+" : ""}${s.params.buyOffsetYen} 円 / 売 = スポット ${s.params.sellOffsetYen >= 0 ? "+" : ""}${s.params.sellOffsetYen} 円`
+          : `買 < ${s.params.buyBelowYen} 円 / 売 > ${s.params.sellTiersYen.join(" / > ")} 円`}{" "}
+        · 各最大 {s.params.maxSellBlocks} コマ
       </p>
       <div className="kpis">
         <div className="kpi"><div className="label">純損益（保守的: 平均価格で約定判定）</div><div className={`value num ${signClass(s.netYen)}`}>{yen(s.netYen)}</div></div>
         <div className="kpi"><div className="label">純損益（楽観的: 高値/安値タッチで約定）</div><div className={`value num ${signClass(s.optimistic.netYen)}`}>{yen(s.optimistic.netYen)}</div></div>
-        <div className="kpi"><div className="label">比較: スポット裁定（安7充電/高7放電）</div><div className="value num">{yen(s.baselineNetYen)}</div></div>
+        {s.fixed && (
+          <div className="kpi"><div className="label">比較: v0.2 固定しきい値（保守的 / 楽観的）</div><div className="value num">{yen(s.fixed.netYen)} / {yen(s.fixed.optimisticNetYen)}</div></div>
+        )}
+        <div className="kpi"><div className="label">参考: スポット裁定の上限（約定価格を事前に知っていた場合）</div><div className="value num">{yen(s.baselineNetYen)}</div></div>
         <div className="kpi"><div className="label">約定 買 / 売（保守的）</div><div className="value num"><span className="buy">{s.buyFills}</span> / <span className="sell">{s.sellFills}</span></div></div>
         <div className="kpi"><div className="label">取引のあった日</div><div className="value num">{s.daysWithTrades} / {s.days}</div></div>
         <div className="kpi"><div className="label">SOC 制約違反</div><div className={`value num ${s.socViolations ? "neg" : "pos"}`}>{s.socViolations}</div></div>
