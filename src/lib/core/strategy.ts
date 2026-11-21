@@ -1,4 +1,4 @@
-import { blockMwh, maxExecutable, socDelta } from "./soc";
+import { blockMwh, maxExecutable, socBounds, socDelta } from "./soc";
 import type { AssetSpec, Block, Order, StrategyParams } from "./types";
 
 // ───────────────────────── EPRX（S2） ─────────────────────────
@@ -52,6 +52,8 @@ export interface HaPlan {
   sellTier: Record<Block, number>;
   /** コマ別の指値（円/kWh）。買い・売りどちらのコマも入る */
   limitYen: Record<Block, number>;
+  /** 売り切り優先で下げてよい売り指値の下限（円/kWh、原価 ÷ η）。無ければ下げない */
+  floorYen?: number;
   /** 全計画注文が約定した場合の SOC 推移（index b = B b 終了時） */
   socPlan: number[];
   plannedOrders: Order[];
@@ -230,11 +232,17 @@ export function planHaSpotRelative(
   }
 
   const { orders, socPlan } = layoutOrders(buys, sells, limitYen, startSocMwh, asset);
+  // 原価の目安: 計画した買い指値の平均（買いが無い日はその日の最安スポット）を η で割った値
+  const buyLimits = [...buys].map((b) => limitYen[b]);
+  const unitCost = buyLimits.length
+    ? buyLimits.reduce((a, x) => a + x, 0) / buyLimits.length
+    : Math.min(...spotYen.filter((_, i) => !excluded.has(i + 1)));
   return {
     buyBlocks: [...buys].sort((a, b) => a - b),
     sellBlocks: [...sells].sort((a, b) => a - b),
     sellTier: {},
     limitYen,
+    floorYen: round2(unitCost / eta),
     socPlan,
     plannedOrders: orders,
   };
@@ -246,6 +254,22 @@ export interface IntradayState {
   socMwh: number; // 対象コマ開始時点の見込み SOC（約定済みを反映）
   buysFilled: number;
   sellsFilled: number;
+}
+
+/**
+ * 売り切り優先（S9）。このコマ以降に残っている売りコマ数を R とすると、
+ * SOC（下限より上の分）を受渡端で売り切るには R コマ分が必要。
+ * それが「このコマを除いた残り R−1 コマ」で売れる量を超えるなら、このコマは売り逃すと電気が残るので
+ * 指値を catchupYen 下げる。ただし原価割れ（plan.floorYen）より下げない。
+ */
+export function catchupSellLimit(block: Block, plan: HaPlan, socMwh: number, asset: AssetSpec, params: StrategyParams): number {
+  const base = plan.limitYen[block];
+  if (!params.catchupYen || plan.floorYen == null) return base;
+  const remaining = plan.sellBlocks.filter((b) => b >= block).length;
+  const sellable = Math.max(0, socMwh - socBounds(asset).min) * Math.sqrt(asset.roundTripEfficiency);
+  const mustSell = sellable > (remaining - 1) * blockMwh(asset) + 1e-6;
+  if (!mustSell) return base;
+  return Math.round(Math.max(plan.floorYen, Math.min(base, base - params.catchupYen)) * 100) / 100;
 }
 
 /**
@@ -268,7 +292,9 @@ export function decideCycle(
     const mwh = Math.min(blockMwh(asset), maxExecutable(asset, state.socMwh, "sell"));
     const tier = plan.sellTier[block];
     if (mwh > 0.001) {
-      if (params.thresholdMode === "spotRelative") return { block, side: "sell", limitYen: plan.limitYen[block], mwh };
+      if (params.thresholdMode === "spotRelative") {
+        return { block, side: "sell", limitYen: catchupSellLimit(block, plan, state.socMwh, asset, params), mwh };
+      }
       return { block, side: "sell", limitYen: sellLimit(tier), mwh, tier };
     }
     return null;
