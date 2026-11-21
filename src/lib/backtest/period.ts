@@ -9,6 +9,20 @@ export interface MarketData {
   intraday: Map<string, IntradayBar[]>;
 }
 
+/**
+ * 在庫補正後の損益 = 純損益 + (終了 SOC − 開始 SOC) × √η × 期間平均スポット × 1000。
+ * 期間の最初に持っていた電気を売っただけの利益（または積み増した在庫）を時価で相殺し、
+ * パラメータ同士を公平に比べるための指標。
+ */
+export function inventoryAdjustedNet(runs: RunResult[], data: MarketData, asset: AssetSpec): number {
+  if (!runs.length) return 0;
+  const prices = runs.flatMap((r) => data.spot.get(r.dateCode) ?? []);
+  const avg = prices.reduce((a, x) => a + x, 0) / prices.length;
+  const net = runs.reduce((a, r) => a + r.pnl.netYen, 0);
+  const dSoc = runs[runs.length - 1].endSocMwh - runs[0].startSocMwh;
+  return net + dSoc * Math.sqrt(asset.roundTripEfficiency) * avg * 1000;
+}
+
 const yen = (f: { priceYen: number; mwh: number }) => f.priceYen * f.mwh * 1000;
 
 /**

@@ -38,6 +38,11 @@ export interface StrategyParams {
   buyOffsetYen: number; // spotRelative: 買い指値 = スポット + この値（負なら割安でしか買わない）
   sellOffsetYen: number; // spotRelative: 売り指値 = スポット + この値
   minSpreadYen: number; // spotRelative: 売り指値 × η − 買い指値 がこの値未満の組は計画しない
+  /**
+   * spotRelative: 売り切り優先（S9）。残りの売りコマだけでは SOC を下限まで売り切れないとき、
+   * そのコマの売り指値をこの値だけ下げる（0 = 無効）。ただし原価割れ（floorYen）より下げない。
+   */
+  catchupYen: number;
 }
 
 /** v0.2 の固定しきい値（比較用） */
@@ -51,6 +56,7 @@ export const FIXED_PARAMS: StrategyParams = {
   buyOffsetYen: 0,
   sellOffsetYen: 0,
   minSpreadYen: 0,
+  catchupYen: 0,
 };
 
 /**
@@ -64,6 +70,8 @@ export const DEFAULT_PARAMS: StrategyParams = {
   buyOffsetYen: 0,
   sellOffsetYen: -1,
   minSpreadYen: 0,
+  // 売り切り優先は既定では無効。ウォークフォワードで 3 回中 2 回「0」が選ばれたため（sweep で月次に選び直す）
+  catchupYen: 0,
 };
 
 export type Side = "buy" | "sell";
